@@ -1,0 +1,88 @@
+from flask import Flask, render_template, request
+from flask_httpauth import HTTPBasicAuth
+import requests
+
+app = Flask(__name__)
+auth = HTTPBasicAuth()
+
+# Definindo usuário e senha
+users = {
+    "admin": "valorant"
+}
+
+@auth.get_password
+def get_password(username):
+    if username in users:
+        return users.get(username)
+    return None
+
+@app.route('/')
+@auth.login_required
+def home():
+    # Lista de URLs para os arquivos page-data.json
+    urls = [
+        'https://playvalorant.com/page-data/de-de/news/page-data.json',
+        'https://playvalorant.com/page-data/es-es/news/page-data.json',
+        'https://playvalorant.com/page-data/fr-fr/news/page-data.json',
+        'https://playvalorant.com/page-data/it-it/news/page-data.json',
+        'https://playvalorant.com/page-data/pl-pl/news/page-data.json',
+        'https://playvalorant.com/page-data/ru-ru/news/page-data.json',
+        'https://playvalorant.com/page-data/tr-tr/news/page-data.json',
+        'https://playvalorant.com/page-data/es-mx/news/page-data.json',
+        'https://playvalorant.com/page-data/id-id/news/page-data.json',
+        'https://playvalorant.com/page-data/ja-jp/news/page-data.json',
+        'https://playvalorant.com/page-data/ko-kr/news/page-data.json',
+        'https://playvalorant.com/page-data/pt-br/news/page-data.json',
+        'https://playvalorant.com/page-data/th-th/news/page-data.json',
+        'https://playvalorant.com/page-data/vi-vn/news/page-data.json',
+        'https://playvalorant.com/page-data/zh-tw/news/page-data.json',
+        'https://playvalorant.com/page-data/ar-ae/news/page-data.json',
+        'https://playvalorant.com/page-data/en-us/news/page-data.json',
+        'https://playvalorant.com/page-data/en-gb/news/page-data.json'
+    ]
+
+    all_news = []  # Lista para armazenar todas as notícias de todas as URLs
+
+    for url in urls:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            news_data = response.json()
+
+            # Capturar todos os dados das notícias
+            news_items = news_data['result']['data']['allContentstackArticles']['nodes']
+
+            # Adicionar a região e a URL completa corrigida a cada notícia
+            region = url.split('/')[-3]
+            for news in news_items:
+                news['region'] = region
+                # Corrigir a formação da URL da notícia
+                news_url = news['url']['url']
+                if not news_url.startswith('/'):
+                    news_url = f'/{news_url}'
+                news['full_url'] = f"https://playvalorant.com/{region}{news_url}"
+
+            all_news.extend(news_items)  # Adicionar as notícias da URL à lista geral
+        except requests.exceptions.RequestException as e:
+            print(f"Erro ao fazer a solicitação para {url}: {e}")
+
+    # Ordenar as notícias por data, com as mais recentes no topo
+    all_news.sort(key=lambda x: x['date'], reverse=True)
+
+    # Implementar paginação
+    page = request.args.get('page', 1, type=int)
+    per_page = 30
+    total_pages = (len(all_news) + per_page - 1) // per_page
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated_news = all_news[start:end]
+
+    # Pre-calcular a gama de paginação
+    pagination_range = range(max(1, page - 7), min(total_pages + 1, page + 7))
+
+    return render_template('index.html', news=paginated_news, page=page, total_pages=total_pages, pagination_range=pagination_range)
+
+if __name__ == '__main__':
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app)
+    app.run(host='0.0.0.0', port=80)
